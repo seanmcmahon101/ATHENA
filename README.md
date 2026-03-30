@@ -7,7 +7,7 @@ Inspired by [PAI](https://github.com/danielmiessler/Personal_AI_Infrastructure.g
 
 > Amplifying your team's collective intelligence — empowering employees with advanced AI-driven business knowledge management, not replacing them.
 
-<img width="2816" height="1536" alt="workflow" src="https://github.com/user-attachments/assets/4e70bc1b-4da3-439f-b411-13a8c139c6c6" />
+<img width="2816" height="1536" alt="workflow" src="https://github.com/user-attachments/assets/bc846fca-bf5f-42d5-aafb-681a602c3680" />
 
 ## Overview
 
