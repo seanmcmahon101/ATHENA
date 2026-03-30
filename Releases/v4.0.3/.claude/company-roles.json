@@ -1,0 +1,70 @@
+{
+  "roles": {
+    "viewer": {
+      "clearance": "public",
+      "departments_visible": []
+    },
+    "engineer": {
+      "clearance": "internal",
+      "departments_visible": ["engineering", "product"]
+    },
+    "senior_engineer": {
+      "clearance": "internal",
+      "departments_visible": ["engineering", "product", "design"]
+    },
+    "designer": {
+      "clearance": "internal",
+      "departments_visible": ["design", "product"]
+    },
+    "product_manager": {
+      "clearance": "confidential",
+      "departments_visible": ["product", "engineering", "design"]
+    },
+    "hr_manager": {
+      "clearance": "confidential",
+      "departments_visible": ["hr", "company-wide"]
+    },
+    "finance_manager": {
+      "clearance": "confidential",
+      "departments_visible": ["finance", "company-wide"]
+    },
+    "director": {
+      "clearance": "confidential",
+      "departments_visible": ["*"]
+    },
+    "executive": {
+      "clearance": "restricted",
+      "departments_visible": ["*"]
+    }
+  },
+  "clearance_hierarchy": ["public", "internal", "confidential", "restricted"],
+  "topic_restrictions": {
+    "salary": "restricted",
+    "compensation": "restricted",
+    "equity": "restricted",
+    "stock options": "restricted",
+    "termination": "restricted",
+    "fired": "restricted",
+    "layoff": "restricted",
+    "performance review": "confidential",
+    "performance improvement plan": "restricted",
+    "pip": "restricted",
+    "financial results": "confidential",
+    "revenue": "confidential",
+    "profit": "confidential",
+    "burn rate": "restricted",
+    "runway": "restricted",
+    "strategy": "restricted",
+    "acquisition": "restricted",
+    "merger": "restricted",
+    "board meeting": "restricted",
+    "board minutes": "restricted",
+    "investor": "restricted",
+    "fundraising": "restricted",
+    "valuation": "restricted",
+    "disciplinary": "restricted",
+    "personal data": "restricted",
+    "medical": "restricted",
+    "disability": "restricted"
+  }
+}
