@@ -77,25 +77,8 @@ git pull && ./setup.sh
 
 ## Architecture
 
-```
-Employee A (Engineer)          Employee B (HR Manager)
-     |                              |
-     v                              v
- Claude Code                   Claude Code
- (~/.claude/employee.json)      (~/.claude/employee.json)
-     |                              |
-     |-- PromptGuard (topic check)  |-- PromptGuard (topic check)
-     |-- AccessControl (file check) |-- AccessControl (file check)
-     |                              |
-     v                              v
-          Memory Vault (Shared Storage)
-          |-- PUBLIC/          <-- everyone
-          |-- INTERNAL/        <-- all employees
-          |-- CONFIDENTIAL/    <-- managers + execs
-          |-- RESTRICTED/      <-- execs + HR only
-          |-- AUDIT/           <-- access logs
-          +-- _index.jsonl     <-- knowledge index
-```
+<img width="1376" height="768" alt="nano-banana-pro-kn727pnrhybb3z6ycv05v2px7h83w110" src="https://github.com/user-attachments/assets/9fdd4fdc-a826-4bf1-9e1c-1c49faa5733f" />
+
 
 ## Hooks
 
