@@ -1,4 +1,4 @@
-# Business AI Infrastructure
+# Athena - An AI architechture for self improving business context & intelligence
 
 ### Built for [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
