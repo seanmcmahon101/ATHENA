@@ -31,7 +31,7 @@ A hook-based infrastructure that turns Claude Code into a **company-wide knowled
 1. **Clone the repo and initialise the vault:**
    ```bash
    git clone <repo-url>
-   cd Business_AI_Infrastructure
+   cd Athena
    ./admin.sh init          # Creates vault directories + empty roster
    ```
 
@@ -55,7 +55,7 @@ The roster lives in the vault at `.admin/roster.json` and is the **source of tru
 1. **Clone the repo:**
    ```bash
    git clone <repo-url>
-   cd Business_AI_Infrastructure
+   cd Athena
    ```
 
 2. **Run the setup script:**
@@ -177,7 +177,7 @@ When hooks or roles change:
 
 ```
 1.  Install Bun                       ->  curl -fsSL https://bun.sh/install | bash
-2.  Clone this repo                   ->  git clone <repo-url> && cd Business_AI_Infrastructure
+2.  Clone this repo                   ->  git clone <repo-url> && cd Athena
 3.  Initialise the vault              ->  ./admin.sh init
                                           Choose your vault location (network drive, shared folder, etc.)
                                           Creates all folders + empty roster + saves path to .vault-path
@@ -201,7 +201,7 @@ When hooks or roles change:
 1.  Install Bun                       ->  curl -fsSL https://bun.sh/install | bash
 2.  Obtain your employee ID           ->  Provided by your admin (e.g. emp_001)
 3.  Confirm vault access              ->  Check that you can access the vault path your admin provided
-4.  Clone the repo                    ->  git clone <repo-url> && cd Business_AI_Infrastructure
+4.  Clone the repo                    ->  git clone <repo-url> && cd Athena
 5.  Run setup                         ->  ./setup.sh
                                           Enter your employee ID, name, and email
                                           Vault path is auto-detected from admin config
