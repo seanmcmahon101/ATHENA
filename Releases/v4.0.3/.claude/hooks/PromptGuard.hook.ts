@@ -7,23 +7,20 @@
  * If the employee's clearance level is insufficient for a detected topic,
  * injects a system reminder telling Claude to decline the request.
  *
- * TRIGGER: UserPromptSubmit
+ * Uses word-boundary matching to reduce false positives (e.g., "performance report"
+ * no longer triggers the "performance review" restriction).
  *
- * INPUT:
- * - user_prompt: string (the raw user message)
- * - session_id: string
+ * TRIGGER: UserPromptSubmit
  *
  * OUTPUT:
  * - stdout: JSON with optional "message" field containing a system reminder
  * - Blocked topics get a system reminder injected, not a hard block,
  *   so Claude can politely explain why it can't help.
- *
- * SIDE EFFECTS:
- * - Appends to: W:\MEMORY\AUDIT\YYYY-MM\access-log.jsonl
  */
 
 import { appendFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
+import { readStdinJSON } from './lib/stdin';
 import {
   getEmployee,
   getCompanyRoles,
@@ -40,6 +37,8 @@ interface HookInput {
 function logAudit(entry: Record<string, unknown>): void {
   try {
     const vaultPath = getVaultPath();
+    if (!vaultPath) return;
+
     const now = new Date();
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const auditDir = join(vaultPath, 'AUDIT', yearMonth);
@@ -55,16 +54,21 @@ function logAudit(entry: Record<string, unknown>): void {
   }
 }
 
-async function main() {
-  let inputData = '';
-  for await (const chunk of Bun.stdin.stream()) {
-    inputData += new TextDecoder().decode(chunk);
-  }
+/**
+ * Check if a keyword appears in text using word-boundary matching.
+ * This prevents "performance report" from triggering "performance review".
+ */
+function matchesKeyword(text: string, keyword: string): boolean {
+  // Escape regex special characters in the keyword
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+  return regex.test(text);
+}
 
-  let input: HookInput;
-  try {
-    input = JSON.parse(inputData);
-  } catch {
+async function main() {
+  const input = await readStdinJSON<HookInput>();
+
+  if (!input) {
     process.exit(0);
   }
 
@@ -75,14 +79,13 @@ async function main() {
 
   const employee = getEmployee();
   const roles = getCompanyRoles();
-  const promptLower = prompt.toLowerCase();
 
-  // Check each restricted topic against the prompt
+  // Check each restricted topic against the prompt using word-boundary matching
   const blockedTopics: string[] = [];
   const topicRestrictions = roles.topic_restrictions;
 
   for (const [keyword, requiredClearance] of Object.entries(topicRestrictions)) {
-    if (promptLower.includes(keyword.toLowerCase())) {
+    if (matchesKeyword(prompt, keyword)) {
       if (!hasClearance(employee.clearance, requiredClearance as ClearanceLevel)) {
         blockedTopics.push(keyword);
       }
@@ -90,7 +93,6 @@ async function main() {
   }
 
   if (blockedTopics.length === 0) {
-    // No restricted topics detected — proceed normally
     process.exit(0);
   }
 

@@ -9,69 +9,28 @@
  *
  * TRIGGER: PreToolUse (matcher: Bash, Edit, Write, Read)
  *
- * INPUT:
- * - tool_name: "Bash" | "Edit" | "Write" | "Read"
- * - tool_input: { command?: string, file_path?: string, ... }
- * - session_id: Current session identifier
- *
  * OUTPUT:
- * - stdout: JSON decision object
- *   - {"continue": true} → Allow operation
- *   - {"decision": "ask", "message": "..."} → Prompt user for confirmation
- * - exit(0): Normal completion (with decision)
- * - exit(2): Hard block (catastrophic operation prevented)
+ * - {"continue": true} → Allow operation
+ * - {"decision": "ask", "message": "..."} → Prompt user for confirmation
+ * - exit(2) → Hard block (catastrophic operation prevented)
  *
- * SIDE EFFECTS:
- * - Writes to: MEMORY/SECURITY/YYYY/MM/security-{summary}-{timestamp}.jsonl
- * - User prompt: May trigger confirmation dialog for confirm-level operations
- *
- * INTER-HOOK RELATIONSHIPS:
- * - DEPENDS ON: patterns.yaml (security pattern definitions)
- * - COORDINATES WITH: None (standalone validation)
- * - MUST RUN BEFORE: Tool execution (blocking)
- * - MUST RUN AFTER: None
- *
- * ERROR HANDLING:
- * - Missing patterns.yaml: Uses default safe patterns
- * - Parse errors: Logs warning, allows operation (fail-open for usability)
- * - Logging failures: Silent (should not block operations)
- *
- * PERFORMANCE:
- * - Blocking: Yes (must complete before tool executes)
- * - Typical execution: <10ms
- * - Design: Fast path for safe operations, pattern matching only when needed
- *
- * PATTERN CATEGORIES:
- * Bash commands:
- * - blocked: Always prevented (rm -rf /, format, etc.)
- * - confirm: Requires user confirmation (git push --force, etc.)
- * - alert: Logged but allowed (sudo, etc.)
- *
- * File paths:
- * - zeroAccess: Never readable or writable (~/.ssh, credentials, etc.)
- * - readOnly: Readable but not writable (system configs)
- * - confirmWrite: Requires confirmation to write
- * - noDelete: Cannot be deleted
- *
- * SECURITY MODEL:
- * - Defense in depth: Multiple pattern layers
- * - Fail-safe for catastrophic operations (exit 2)
- * - Fail-open for minor concerns (log and allow)
- * - All decisions logged for audit trail
+ * PATTERN LOADING:
+ * Looks for patterns.yaml in this order:
+ * 1. ~/.claude/hooks/patterns.yaml (user's custom rules)
+ * 2. <hooks-dir>/patterns.yaml (shipped defaults)
+ * Falls open if no patterns found.
  */
 
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { parse as parseYaml } from 'yaml';
-import { paiPath } from './lib/paths';
+import { configPath } from './lib/paths';
+import { readStdinJSON } from './lib/stdin';
 
 // ========================================
 // Security Event Logging
 // ========================================
-
-// Logs to individual files: MEMORY/SECURITY/YYYY/MM/security-{summary}-{timestamp}.jsonl
-// Each event gets a descriptive filename for easy scanning
 
 interface SecurityEvent {
   timestamp: string;
@@ -79,57 +38,48 @@ interface SecurityEvent {
   event_type: 'block' | 'confirm' | 'alert' | 'allow';
   tool: string;
   category: 'bash_command' | 'path_access';
-  target: string;  // command or path
+  target: string;
   pattern_matched?: string;
   reason?: string;
   action_taken: string;
 }
 
 function generateEventSummary(event: SecurityEvent): string {
-  // Create a 6-word-max slug from event type and target/reason
-  const eventWord = event.event_type; // block, confirm, alert, allow
-
-  // Extract key words from target or reason
+  const eventWord = event.event_type;
   const source = event.reason || event.target || 'unknown';
   const words = source
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')  // Remove special chars
+    .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter(w => w.length > 1)     // Skip tiny words
-    .slice(0, 5);                   // Max 5 words (+ event type = 6)
-
+    .filter(w => w.length > 1)
+    .slice(0, 5);
   return [eventWord, ...words].join('-');
 }
 
 function getSecurityLogPath(event: SecurityEvent): string {
+  const vaultPath = process.env.VAULT_PATH;
+  if (!vaultPath) return '';
+
   const now = new Date();
   const year = now.getFullYear().toString();
   const month = (now.getMonth() + 1).toString().padStart(2, '0');
-  const day = now.getDate().toString().padStart(2, '0');
-  const hour = now.getHours().toString().padStart(2, '0');
-  const min = now.getMinutes().toString().padStart(2, '0');
-  const sec = now.getSeconds().toString().padStart(2, '0');
-
+  const timestamp = `${year}${month}${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
   const summary = generateEventSummary(event);
-  const timestamp = `${year}${month}${day}-${hour}${min}${sec}`;
 
-  return paiPath('MEMORY', 'SECURITY', year, month, `security-${summary}-${timestamp}.jsonl`);
+  return join(vaultPath, 'AUDIT', 'SECURITY', year, month, `security-${summary}-${timestamp}.jsonl`);
 }
 
 function logSecurityEvent(event: SecurityEvent): void {
   try {
     const logPath = getSecurityLogPath(event);
-    const dir = logPath.substring(0, logPath.lastIndexOf('/'));
+    if (!logPath) return;
 
-    // Ensure directory exists
+    const dir = dirname(logPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-
-    const content = JSON.stringify(event, null, 2);
-    writeFileSync(logPath, content);
+    writeFileSync(logPath, JSON.stringify(event, null, 2));
   } catch {
-    // Logging failure should not block operations
     console.error('Warning: Failed to log security event');
   }
 }
@@ -174,78 +124,48 @@ interface PatternsConfig {
 }
 
 // ========================================
-// Config Loading - Cascading Path Lookup
+// Config Loading
 // ========================================
 
 // Pattern paths in priority order:
-// 1. PAI/USER/PAISECURITYSYSTEM/patterns.yaml (user's custom rules)
-// 2. PAI/PAISECURITYSYSTEM/patterns.example.yaml (default template)
-const USER_PATTERNS_PATH = paiPath('PAI', 'USER', 'PAISECURITYSYSTEM', 'patterns.yaml');
-const SYSTEM_PATTERNS_PATH = paiPath('PAI', 'PAISECURITYSYSTEM', 'patterns.example.yaml');
+// 1. ~/.claude/hooks/patterns.yaml (user's custom rules — survives updates)
+// 2. <this-dir>/patterns.yaml (shipped defaults)
+const USER_PATTERNS_PATH = configPath('hooks', 'patterns.yaml');
+const SHIPPED_PATTERNS_PATH = join(dirname(decodeURIComponent(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1')), 'patterns.yaml');
 
 let patternsCache: PatternsConfig | null = null;
-let patternsSource: 'user' | 'system' | 'none' = 'none';
-
-function getPatternsPath(): string | null {
-  // Try USER patterns first (user's custom rules)
-  if (existsSync(USER_PATTERNS_PATH)) {
-    patternsSource = 'user';
-    return USER_PATTERNS_PATH;
-  }
-
-  // Fall back to SYSTEM patterns (default template)
-  if (existsSync(SYSTEM_PATTERNS_PATH)) {
-    patternsSource = 'system';
-    return SYSTEM_PATTERNS_PATH;
-  }
-
-  // No patterns found
-  patternsSource = 'none';
-  return null;
-}
 
 function loadPatterns(): PatternsConfig {
   if (patternsCache) return patternsCache;
 
-  const patternsPath = getPatternsPath();
+  const emptyConfig: PatternsConfig = {
+    version: '0.0',
+    philosophy: { mode: 'permissive', principle: 'No patterns loaded - fail open' },
+    bash: { trusted: [], blocked: [], confirm: [], alert: [] },
+    paths: { zeroAccess: [], readOnly: [], confirmWrite: [], noDelete: [] },
+    projects: {}
+  };
 
-  if (!patternsPath) {
-    // No patterns file - fail open (allow all)
-    return {
-      version: '0.0',
-      philosophy: { mode: 'permissive', principle: 'No patterns loaded - fail open' },
-      bash: { trusted: [], blocked: [], confirm: [], alert: [] },
-      paths: { zeroAccess: [], readOnly: [], confirmWrite: [], noDelete: [] },
-      projects: {}
-    };
+  // Try user patterns first, then shipped defaults
+  for (const path of [USER_PATTERNS_PATH, SHIPPED_PATTERNS_PATH]) {
+    if (existsSync(path)) {
+      try {
+        const content = readFileSync(path, 'utf-8');
+        patternsCache = parseYaml(content) as PatternsConfig;
+        return patternsCache;
+      } catch (error) {
+        console.error(`Failed to parse patterns.yaml at ${path}:`, error);
+      }
+    }
   }
 
-  try {
-    const content = readFileSync(patternsPath, 'utf-8');
-    patternsCache = parseYaml(content) as PatternsConfig;
-    return patternsCache;
-  } catch (error) {
-    // Parse error - fail open
-    console.error(`Failed to parse ${patternsSource} patterns.yaml:`, error);
-    return {
-      version: '0.0',
-      philosophy: { mode: 'permissive', principle: 'Parse error - fail open' },
-      bash: { trusted: [], blocked: [], confirm: [], alert: [] },
-      paths: { zeroAccess: [], readOnly: [], confirmWrite: [], noDelete: [] },
-      projects: {}
-    };
-  }
+  return emptyConfig;
 }
 
 // ========================================
 // Command Normalization
 // ========================================
 
-/**
- * Strip leading environment variable assignments from a command.
- * Prevents bypass like: LANG=C rm -rf / or FOO="bar" dangerous-cmd
- * Also strips leading whitespace.
- */
 function stripEnvVarPrefix(command: string): string {
   return command.replace(
     /^\s*(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]*)\s+)*/,
@@ -258,19 +178,15 @@ function stripEnvVarPrefix(command: string): string {
 // ========================================
 
 function matchesPattern(command: string, pattern: string): boolean {
-  // Convert pattern to regex
-  // Patterns can use .* for wildcards
   try {
     const regex = new RegExp(pattern, 'i');
     return regex.test(command);
   } catch {
-    // Invalid regex - try literal match
     return command.toLowerCase().includes(pattern.toLowerCase());
   }
 }
 
 function expandPath(path: string): string {
-  // Expand ~ to home directory
   if (path.startsWith('~')) {
     return path.replace('~', homedir());
   }
@@ -281,15 +197,13 @@ function matchesPathPattern(filePath: string, pattern: string): boolean {
   const expandedPattern = expandPath(pattern);
   const expandedPath = expandPath(filePath);
 
-  // Handle glob patterns
   if (pattern.includes('*')) {
-    // First replace ** with a placeholder, then escape, then convert back
     let regexPattern = expandedPattern
-      .replace(/\*\*/g, '<<<DOUBLESTAR>>>')  // Protect **
-      .replace(/\*/g, '<<<SINGLESTAR>>>')    // Protect *
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // Escape special chars
-      .replace(/<<<DOUBLESTAR>>>/g, '.*')    // ** = anything including /
-      .replace(/<<<SINGLESTAR>>>/g, '[^/]*'); // * = anything except /
+      .replace(/\*\*/g, '<<<DOUBLESTAR>>>')
+      .replace(/\*/g, '<<<SINGLESTAR>>>')
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/<<<DOUBLESTAR>>>/g, '.*')
+      .replace(/<<<SINGLESTAR>>>/g, '[^/\\\\]*');
 
     try {
       const regex = new RegExp(`^${regexPattern}$`);
@@ -299,7 +213,6 @@ function matchesPathPattern(filePath: string, pattern: string): boolean {
     }
   }
 
-  // Exact match or prefix match for directories
   return expandedPath === expandedPattern ||
          expandedPath.startsWith(expandedPattern.endsWith('/') ? expandedPattern : expandedPattern + '/');
 }
@@ -311,28 +224,24 @@ function matchesPathPattern(filePath: string, pattern: string): boolean {
 function validateBashCommand(command: string): { action: 'allow' | 'block' | 'confirm' | 'alert'; reason?: string } {
   const patterns = loadPatterns();
 
-  // Check trusted patterns FIRST (fast-path allow, no logging)
   for (const p of (patterns.bash.trusted || [])) {
     if (matchesPattern(command, p.pattern)) {
       return { action: 'allow' };
     }
   }
 
-  // Check blocked patterns (hard block)
   for (const p of patterns.bash.blocked) {
     if (matchesPattern(command, p.pattern)) {
       return { action: 'block', reason: p.reason };
     }
   }
 
-  // Check confirm patterns (prompt user)
   for (const p of patterns.bash.confirm) {
     if (matchesPattern(command, p.pattern)) {
       return { action: 'confirm', reason: p.reason };
     }
   }
 
-  // Check alert patterns (log but allow)
   for (const p of patterns.bash.alert) {
     if (matchesPattern(command, p.pattern)) {
       return { action: 'alert', reason: p.reason };
@@ -351,14 +260,12 @@ type PathAction = 'read' | 'write' | 'delete';
 function validatePath(filePath: string, action: PathAction): { action: 'allow' | 'block' | 'confirm'; reason?: string } {
   const patterns = loadPatterns();
 
-  // Check zeroAccess (complete denial)
   for (const p of patterns.paths.zeroAccess) {
     if (matchesPathPattern(filePath, p)) {
       return { action: 'block', reason: `Zero access path: ${p}` };
     }
   }
 
-  // Check readOnly (can read, cannot write/delete)
   if (action === 'write' || action === 'delete') {
     for (const p of patterns.paths.readOnly) {
       if (matchesPathPattern(filePath, p)) {
@@ -367,7 +274,6 @@ function validatePath(filePath: string, action: PathAction): { action: 'allow' |
     }
   }
 
-  // Check confirmWrite (can read, writing requires confirmation)
   if (action === 'write') {
     for (const p of patterns.paths.confirmWrite) {
       if (matchesPathPattern(filePath, p)) {
@@ -376,7 +282,6 @@ function validatePath(filePath: string, action: PathAction): { action: 'allow' |
     }
   }
 
-  // Check noDelete (can read/write, cannot delete)
   if (action === 'delete') {
     for (const p of patterns.paths.noDelete) {
       if (matchesPathPattern(filePath, p)) {
@@ -402,7 +307,6 @@ function handleBash(input: HookInput): void {
     return;
   }
 
-  // Normalize: strip env var prefixes to prevent bypass (e.g., LANG=C rm -rf /)
   const command = stripEnvVarPrefix(rawCommand);
   const result = validateBashCommand(command);
 
@@ -418,7 +322,7 @@ function handleBash(input: HookInput): void {
         reason: result.reason,
         action_taken: 'Hard block - exit 2'
       });
-      console.error(`[PAI SECURITY] 🚨 BLOCKED: ${result.reason}`);
+      console.error(`[ATHENA SECURITY] BLOCKED: ${result.reason}`);
       console.error(`Command: ${command.slice(0, 100)}`);
       process.exit(2);
       break;
@@ -436,7 +340,7 @@ function handleBash(input: HookInput): void {
       });
       console.log(JSON.stringify({
         decision: 'ask',
-        message: `[PAI SECURITY] ⚠️ ${result.reason}\n\nCommand: ${command.slice(0, 200)}\n\nProceed?`
+        message: `[ATHENA SECURITY] ${result.reason}\n\nCommand: ${command.slice(0, 200)}\n\nProceed?`
       }));
       break;
 
@@ -451,7 +355,7 @@ function handleBash(input: HookInput): void {
         reason: result.reason,
         action_taken: 'Logged alert, allowed execution'
       });
-      console.error(`[PAI SECURITY] ⚠️ ALERT: ${result.reason}`);
+      console.error(`[ATHENA SECURITY] ALERT: ${result.reason}`);
       console.error(`Command: ${command.slice(0, 100)}`);
       console.log(JSON.stringify({ continue: true }));
       break;
@@ -485,7 +389,7 @@ function handleFileWrite(input: HookInput, toolName: string): void {
         reason: result.reason,
         action_taken: 'Hard block - exit 2'
       });
-      console.error(`[PAI SECURITY] 🚨 BLOCKED: ${result.reason}`);
+      console.error(`[ATHENA SECURITY] BLOCKED: ${result.reason}`);
       console.error(`Path: ${filePath}`);
       process.exit(2);
       break;
@@ -503,7 +407,7 @@ function handleFileWrite(input: HookInput, toolName: string): void {
       });
       console.log(JSON.stringify({
         decision: 'ask',
-        message: `[PAI SECURITY] ⚠️ ${result.reason}\n\nPath: ${filePath}\n\nProceed?`
+        message: `[ATHENA SECURITY] ${result.reason}\n\nPath: ${filePath}\n\nProceed?`
       }));
       break;
 
@@ -536,7 +440,7 @@ function handleRead(input: HookInput): void {
         reason: result.reason,
         action_taken: 'Hard block - exit 2'
       });
-      console.error(`[PAI SECURITY] 🚨 BLOCKED: ${result.reason}`);
+      console.error(`[ATHENA SECURITY] BLOCKED: ${result.reason}`);
       console.error(`Path: ${filePath}`);
       process.exit(2);
       break;
@@ -551,47 +455,13 @@ function handleRead(input: HookInput): void {
 // ========================================
 
 async function main(): Promise<void> {
-  let input: HookInput;
+  const input = await readStdinJSON<HookInput>();
 
-  try {
-    // Streaming stdin read with hard timeout.
-    // Bun.stdin.text() can hang forever if stdin never closes (known Bun issue).
-    // Use streaming reader + setTimeout that forces process.exit on timeout.
-    const reader = Bun.stdin.stream().getReader();
-    let raw = '';
-    const readLoop = (async () => {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        raw += new TextDecoder().decode(value, { stream: true });
-      }
-    })();
-
-    // Hard timeout: if stdin doesn't close in 200ms, exit the process.
-    // setTimeout keeps the event loop alive, so we use process.exit to force cleanup.
-    const timeout = setTimeout(() => {
-      if (!raw.trim()) {
-        console.log(JSON.stringify({ continue: true }));
-        process.exit(0);
-      }
-    }, 200);
-
-    await Promise.race([readLoop, new Promise<void>(r => setTimeout(r, 200))]);
-    clearTimeout(timeout);
-
-    if (!raw.trim()) {
-      console.log(JSON.stringify({ continue: true }));
-      return;
-    }
-
-    input = JSON.parse(raw);
-  } catch {
-    // Parse error or timeout - fail open
+  if (!input) {
     console.log(JSON.stringify({ continue: true }));
     return;
   }
 
-  // Route to appropriate handler
   switch (input.tool_name) {
     case 'Bash':
       handleBash(input);
@@ -607,12 +477,10 @@ async function main(): Promise<void> {
       handleRead(input);
       break;
     default:
-      // Allow all other tools
       console.log(JSON.stringify({ continue: true }));
   }
 }
 
-// Run main, fail open on any error
 main().catch(() => {
   console.log(JSON.stringify({ continue: true }));
 });

@@ -1,4 +1,4 @@
-# Business AI Infrastructure — Company Knowledge Assistant
+# Athena — Company Knowledge Assistant
 
 ## Purpose
 

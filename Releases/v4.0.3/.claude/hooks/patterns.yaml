@@ -1,0 +1,127 @@
+# =============================================================================
+# Athena Security Patterns
+#
+# Defines which bash commands and file paths should be blocked, require
+# confirmation, or trigger alerts. Used by SecurityValidator.hook.ts.
+#
+# Categories:
+#   bash.trusted   — Fast-path allow (no logging)
+#   bash.blocked   — Hard block (exit 2)
+#   bash.confirm   — Prompt user for confirmation
+#   bash.alert     — Log but allow
+#
+#   paths.zeroAccess   — Never readable or writable
+#   paths.readOnly     — Readable but not writable
+#   paths.confirmWrite — Writing requires confirmation
+#   paths.noDelete     — Cannot be deleted
+#
+# Patterns use regex syntax. Use .* for wildcards.
+# =============================================================================
+
+version: "1.0"
+
+philosophy:
+  mode: "balanced"
+  principle: "Block catastrophic operations, confirm risky ones, allow everything else"
+
+bash:
+  trusted:
+    - pattern: "^(ls|pwd|echo|cat|head|tail|wc|date|whoami|hostname|uname)\\b"
+      reason: "Safe read-only commands"
+    - pattern: "^git (status|log|diff|branch|show|remote|fetch)"
+      reason: "Safe git read operations"
+    - pattern: "^(node|bun|npm|npx|yarn|pnpm) (--version|list|info|view|show)"
+      reason: "Package manager info commands"
+    - pattern: "^(grep|rg|find|fd|ag) "
+      reason: "Search commands"
+
+  blocked:
+    - pattern: "rm\\s+(-[a-zA-Z]*f[a-zA-Z]*\\s+)?(/|~)\\s*$"
+      reason: "Destructive recursive delete of root or home directory"
+    - pattern: "rm\\s+-rf\\s+/(?!tmp)"
+      reason: "Recursive force delete of system directories"
+    - pattern: "mkfs\\b"
+      reason: "Filesystem format — catastrophic data loss"
+    - pattern: "dd\\s+if=/dev/(zero|random|urandom)\\s+of=/dev/"
+      reason: "Raw disk write — catastrophic data loss"
+    - pattern: ":(){\\s*:|:&\\s*};:"
+      reason: "Fork bomb"
+    - pattern: "chmod\\s+(-R\\s+)?777\\s+/"
+      reason: "Recursive world-writable on root"
+    - pattern: ">(\\s+)?/dev/sd[a-z]"
+      reason: "Direct write to block device"
+    - pattern: "curl.*\\|\\s*(bash|sh|zsh)"
+      reason: "Pipe untrusted URL to shell — verify source first"
+
+  confirm:
+    - pattern: "git\\s+push\\s+(-f|--force)"
+      reason: "Force push can overwrite remote history"
+    - pattern: "git\\s+reset\\s+--hard"
+      reason: "Hard reset discards uncommitted changes"
+    - pattern: "git\\s+clean\\s+-[a-zA-Z]*f"
+      reason: "Clean removes untracked files permanently"
+    - pattern: "git\\s+branch\\s+-D"
+      reason: "Force-delete branch loses unmerged commits"
+    - pattern: "rm\\s+-rf\\s+"
+      reason: "Recursive force delete — verify target"
+    - pattern: "npm\\s+publish"
+      reason: "Publishing to npm registry"
+    - pattern: "docker\\s+(rm|rmi|system\\s+prune)"
+      reason: "Docker cleanup — may remove needed images/containers"
+    - pattern: "DROP\\s+(TABLE|DATABASE)"
+      reason: "SQL drop operation — verify target"
+    - pattern: "TRUNCATE\\s+TABLE"
+      reason: "SQL truncate — removes all data"
+    - pattern: "kubectl\\s+delete"
+      reason: "Kubernetes resource deletion"
+
+  alert:
+    - pattern: "sudo\\b"
+      reason: "Elevated privileges requested"
+    - pattern: "chmod\\s+"
+      reason: "File permission change"
+    - pattern: "chown\\s+"
+      reason: "File ownership change"
+    - pattern: "net\\s+(user|localgroup|share)"
+      reason: "Windows network/user management"
+    - pattern: "icacls\\s+"
+      reason: "Windows ACL modification"
+    - pattern: "reg\\s+(add|delete)"
+      reason: "Windows registry modification"
+
+paths:
+  zeroAccess:
+    - "~/.ssh/id_*"
+    - "~/.ssh/*.pem"
+    - "~/.ssh/known_hosts"
+    - "~/.aws/credentials"
+    - "~/.gnupg/private*"
+    - "~/.env"
+    - "**/.env"
+    - "**/.env.local"
+    - "**/credentials.json"
+    - "**/service-account*.json"
+
+  readOnly:
+    - "/etc/passwd"
+    - "/etc/hosts"
+    - "/etc/resolv.conf"
+    - "~/.bashrc"
+    - "~/.zshrc"
+    - "~/.profile"
+
+  confirmWrite:
+    - "~/.claude/settings.json"
+    - "~/.claude/employee.json"
+    - "~/.gitconfig"
+    - "**/.npmrc"
+    - "**/package-lock.json"
+    - "**/yarn.lock"
+
+  noDelete:
+    - "~/.claude/employee.json"
+    - "~/.claude/settings.json"
+    - "~/.claude/hooks"
+    - "~/.claude/CLAUDE.md"
+
+projects: {}

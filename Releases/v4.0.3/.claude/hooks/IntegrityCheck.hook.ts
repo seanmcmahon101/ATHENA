@@ -6,27 +6,25 @@
  * Validates that the employee's local employee.json has role/department/clearance
  * values that match the admin-controlled roster on the network drive.
  * Employees can freely edit their name and email, but role, department, and
- * clearance MUST match the roster. Mismatches are blocked.
+ * clearance MUST match the roster. Mismatches are auto-corrected.
  *
  * TRIGGER: SessionStart (runs before VaultContext)
  *
  * OUTPUT:
  * - On success: { "message": "<system-reminder>...</system-reminder>" } with employee context
- * - On mismatch: Blocks session via exit(2) with instructions to contact admin
- * - On missing roster: Allows session with warning (roster may not exist yet)
- *
- * SIDE EFFECTS:
- * - Auto-fixes employee.json if role/department/clearance differ from roster
- *   (overwrites local values with roster values so the employee doesn't have to)
+ * - On mismatch: Auto-syncs employee.json, then confirms identity
+ * - On missing roster: Allows session with warning
+ * - On inactive employee: Blocks session via exit(2)
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { readStdin } from './lib/stdin';
 
 const HOME = process.env.HOME || process.env.USERPROFILE || '';
 const EMPLOYEE_PATH = join(HOME, '.claude', 'employee.json');
-const VAULT_PATH = process.env.VAULT_PATH || join('W:', 'MEMORY');
-const ROSTER_PATH = join(VAULT_PATH, '.admin', 'roster.json');
+const VAULT_PATH = process.env.VAULT_PATH || '';
+const ROSTER_PATH = VAULT_PATH ? join(VAULT_PATH, '.admin', 'roster.json') : '';
 
 interface RosterEmployee {
   name: string;
@@ -54,10 +52,7 @@ interface LocalEmployee {
 
 async function main() {
   // Consume stdin (required by hook protocol)
-  let inputData = '';
-  for await (const chunk of Bun.stdin.stream()) {
-    inputData += new TextDecoder().decode(chunk);
-  }
+  await readStdin();
 
   // Load local employee.json
   if (!existsSync(EMPLOYEE_PATH)) {
@@ -77,8 +72,7 @@ async function main() {
   }
 
   // Load admin roster
-  if (!existsSync(ROSTER_PATH)) {
-    // Roster doesn't exist yet — admin hasn't run init. Allow with warning.
+  if (!ROSTER_PATH || !existsSync(ROSTER_PATH)) {
     console.error('[IntegrityCheck] No admin roster found. Skipping integrity check.');
     console.log(JSON.stringify({
       message: '<system-reminder>NOTE: No admin roster found. Employee permissions are based on local employee.json only. Contact your admin to set up the roster.</system-reminder>'
@@ -105,7 +99,11 @@ async function main() {
     // Override local clearance to public for safety
     local.clearance = 'public';
     local.role = 'viewer';
-    writeFileSync(EMPLOYEE_PATH, JSON.stringify(local, null, 2) + '\n');
+    try {
+      writeFileSync(EMPLOYEE_PATH, JSON.stringify(local, null, 2) + '\n');
+    } catch {
+      // Best-effort update
+    }
     process.exit(0);
   }
 
@@ -116,7 +114,7 @@ async function main() {
     process.exit(2);
   }
 
-  // Check for mismatches in admin-controlled fields
+  // Check for mismatches in admin-controlled fields and auto-sync
   const mismatches: string[] = [];
   let needsUpdate = false;
 
@@ -133,7 +131,6 @@ async function main() {
     needsUpdate = true;
   }
 
-  // Auto-fix: overwrite local employee.json with roster values
   if (needsUpdate) {
     console.error(`[IntegrityCheck] Syncing employee.json with admin roster: ${mismatches.join(', ')}`);
 
@@ -146,11 +143,10 @@ async function main() {
       console.error('[IntegrityCheck] employee.json updated to match roster.');
     } catch (err) {
       console.error(`[IntegrityCheck] Failed to update employee.json: ${err}`);
-      // Still allow the session — the in-memory values from roster are correct
     }
   }
 
-  // Success — pass through with confirmation
+  // Success
   console.log(JSON.stringify({
     message: `<system-reminder>IDENTITY VERIFIED: ${local.name} (${rosterEntry.role}, ${rosterEntry.department}, clearance: ${rosterEntry.clearance}). Identity matches admin roster.</system-reminder>`
   }));
@@ -159,5 +155,5 @@ async function main() {
 
 main().catch((err) => {
   console.error(`[IntegrityCheck] Unexpected error: ${err}`);
-  process.exit(0); // Fail open on unexpected errors
+  process.exit(0);
 });

@@ -8,13 +8,14 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { getConfigDir } from './paths';
 
 const HOME = process.env.HOME || process.env.USERPROFILE || '';
 const EMPLOYEE_PATH = join(HOME, '.claude', 'employee.json');
 const VAULT_PATH = process.env.VAULT_PATH || '';
 
-// Company roles config lives alongside settings.json
-const ROLES_PATH = join(__dirname, '..', '..', 'company-roles.json');
+// Company roles config lives alongside settings.json in ~/.claude/
+const ROLES_PATH = join(getConfigDir(), 'company-roles.json');
 
 export interface Employee {
   employee_id: string;

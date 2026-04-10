@@ -11,14 +11,11 @@
  *
  * OUTPUT:
  * - stdout: JSON with "message" field containing company knowledge context
- *
- * DESIGN:
- * Reads the _index.jsonl file, filters entries by employee clearance and
- * department access, then loads the most recent relevant summaries.
  */
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { readStdin } from './lib/stdin';
 import {
   getEmployee,
   getVaultPath,
@@ -40,17 +37,21 @@ interface IndexEntry {
 
 async function main() {
   // Consume stdin (required by hook protocol even if unused)
-  let inputData = '';
-  for await (const chunk of Bun.stdin.stream()) {
-    inputData += new TextDecoder().decode(chunk);
-  }
+  await readStdin();
 
   const employee = getEmployee();
   const vaultPath = getVaultPath();
+
+  if (!vaultPath) {
+    console.log(JSON.stringify({
+      message: '<system-reminder>WARNING: VAULT_PATH is not configured. Run setup.sh to set your vault location.</system-reminder>'
+    }));
+    process.exit(0);
+  }
+
   const indexPath = join(vaultPath, '_index.jsonl');
 
   if (!existsSync(indexPath)) {
-    // No knowledge yet — output employee context only
     const message = `<system-reminder>COMPANY AI CONTEXT:
 Employee: ${employee.name} (${employee.role}, ${employee.department})
 Clearance: ${employee.clearance}

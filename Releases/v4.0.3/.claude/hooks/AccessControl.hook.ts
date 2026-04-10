@@ -3,14 +3,14 @@
  * AccessControl.hook.ts - Role-Based Access Control for Memory Vault (PreToolUse)
  *
  * PURPOSE:
- * Intercepts Read operations on the shared memory vault (W:\MEMORY).
+ * Intercepts Read, Write, and Edit operations on the shared memory vault.
  * Checks the employee's clearance level and department access against the
  * requested file's classification. Hard blocks unauthorized access.
  *
- * TRIGGER: PreToolUse (matcher: Read)
+ * TRIGGER: PreToolUse (matcher: Read, Write, Edit)
  *
  * INPUT:
- * - tool_name: "Read"
+ * - tool_name: "Read" | "Write" | "Edit"
  * - tool_input: { file_path: string }
  *
  * OUTPUT:
@@ -18,11 +18,12 @@
  * - exit(2) → Access denied (hard block)
  *
  * SIDE EFFECTS:
- * - Appends to: W:\MEMORY\AUDIT\YYYY-MM\access-log.jsonl
+ * - Appends to: VAULT_PATH/AUDIT/YYYY-MM/access-log.jsonl
  */
 
-import { readFileSync, appendFileSync, mkdirSync, existsSync } from 'fs';
+import { appendFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
+import { readStdinJSON } from './lib/stdin';
 import {
   getEmployee,
   getVaultPath,
@@ -46,7 +47,7 @@ interface AuditEntry {
   employee_id: string;
   employee_name: string;
   role: string;
-  action: 'read';
+  action: 'read' | 'write';
   target: string;
   classification: string;
   department: string | null;
@@ -58,6 +59,8 @@ interface AuditEntry {
 function logAudit(entry: AuditEntry): void {
   try {
     const vaultPath = getVaultPath();
+    if (!vaultPath) return;
+
     const now = new Date();
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const auditDir = join(vaultPath, 'AUDIT', yearMonth);
@@ -74,17 +77,9 @@ function logAudit(entry: AuditEntry): void {
 }
 
 async function main() {
-  // Read hook input from stdin
-  let inputData = '';
-  for await (const chunk of Bun.stdin.stream()) {
-    inputData += new TextDecoder().decode(chunk);
-  }
+  const input = await readStdinJSON<HookInput>();
 
-  let input: HookInput;
-  try {
-    input = JSON.parse(inputData);
-  } catch {
-    // Can't parse input — allow by default
+  if (!input) {
     console.log(JSON.stringify({ continue: true }));
     process.exit(0);
   }
@@ -97,6 +92,11 @@ async function main() {
 
   // Only check files within the vault
   const vaultPath = getVaultPath();
+  if (!vaultPath) {
+    console.log(JSON.stringify({ continue: true }));
+    process.exit(0);
+  }
+
   const normalizedPath = filePath.replace(/\\/g, '/');
   const normalizedVault = vaultPath.replace(/\\/g, '/');
 
@@ -109,6 +109,8 @@ async function main() {
   const employee = getEmployee();
   const requiredClearance = getPathClearance(filePath);
   const department = getDepartmentFromPath(filePath);
+  const isWrite = input.tool_name === 'Write' || input.tool_name === 'Edit' || input.tool_name === 'MultiEdit';
+  const action: 'read' | 'write' = isWrite ? 'write' : 'read';
 
   if (!requiredClearance) {
     console.log(JSON.stringify({ continue: true }));
@@ -124,7 +126,14 @@ async function main() {
     departmentOk = canAccessDepartment(employee, department);
   }
 
-  const allowed = clearanceOk && departmentOk;
+  // For writes, additionally block writing to .admin/ unless admin
+  let adminWriteOk = true;
+  const relativePath = normalizedPath.slice(normalizedVault.length + 1);
+  if (isWrite && relativePath.startsWith('.admin')) {
+    adminWriteOk = false; // Only OS-level permissions should allow admin writes
+  }
+
+  const allowed = clearanceOk && departmentOk && adminWriteOk;
 
   // Log the access attempt
   logAudit({
@@ -132,7 +141,7 @@ async function main() {
     employee_id: employee.employee_id,
     employee_name: employee.name,
     role: employee.role,
-    action: 'read',
+    action,
     target: normalizedPath.replace(normalizedVault, ''),
     classification: requiredClearance,
     department,
@@ -141,14 +150,18 @@ async function main() {
       ? `clearance_insufficient: has ${employee.clearance}, needs ${requiredClearance}`
       : !departmentOk
         ? `department_access_denied: ${department} not visible to ${employee.role}`
-        : 'authorized',
+        : !adminWriteOk
+          ? `admin_directory_write_denied: only admins can write to .admin/`
+          : 'authorized',
     session_id: input.session_id || 'unknown',
   });
 
   if (!allowed) {
     const reason = !clearanceOk
       ? `Your role (${employee.role}) has "${employee.clearance}" clearance but this file requires "${requiredClearance}" clearance.`
-      : `Your role (${employee.role}) does not have access to the "${department}" department.`;
+      : !departmentOk
+        ? `Your role (${employee.role}) does not have access to the "${department}" department.`
+        : `Only administrators can write to the .admin/ directory.`;
 
     console.error(`ACCESS DENIED: ${reason} Contact your manager if you need access.`);
     process.exit(2);
@@ -159,7 +172,6 @@ async function main() {
 }
 
 main().catch(() => {
-  // On error, allow the operation (fail-open)
   console.log(JSON.stringify({ continue: true }));
   process.exit(0);
 });

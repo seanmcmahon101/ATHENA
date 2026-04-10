@@ -7,33 +7,20 @@
  * company knowledge and stores it in the shared memory vault with proper
  * classification, attribution, and metadata.
  *
+ * CLASSIFICATION LOGIC:
+ * - Scans content for sensitive topic keywords from company-roles.json
+ * - If restricted topics detected → classifies as CONFIDENTIAL (not INTERNAL)
+ * - Requires 2+ knowledge signal matches for quality control
+ * - Default classification: INTERNAL
+ *
  * TRIGGER: Stop (runs after every Claude response)
- *
- * INPUT:
- * - stop_hook_active: boolean
- * - session_id: string
- * - transcript (from stdin): recent conversation messages
- *
- * OUTPUT:
- * - Writes knowledge files to W:\MEMORY\{classification}\{department}\
- * - Appends entries to W:\MEMORY\_index.jsonl
- * - Logs ingestion to W:\MEMORY\AUDIT\
- *
- * DESIGN:
- * This hook scans the last assistant response for signals that new company
- * knowledge was shared (decisions, processes, architecture, policies).
- * It extracts structured knowledge and writes it to the appropriate vault
- * directory based on the employee's department and clearance level.
- *
- * PERFORMANCE:
- * - Non-blocking: Runs on Stop event after response is delivered
- * - Typical execution: <100ms
- * - Writes are append-only (no reads of large data)
  */
 
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
-import { getEmployee, getVaultPath, hasClearance, type ClearanceLevel } from './lib/employee';
+import { createHash } from 'crypto';
+import { readStdinJSON } from './lib/stdin';
+import { getEmployee, getVaultPath, getCompanyRoles, hasClearance, type ClearanceLevel } from './lib/employee';
 
 interface HookInput {
   session_id?: string;
@@ -57,38 +44,38 @@ interface KnowledgeEntry {
 // Knowledge signal patterns — indicates the conversation contains extractable knowledge
 const KNOWLEDGE_SIGNALS = [
   // Decisions
-  /we decided to/i,
-  /the decision was/i,
-  /we chose to/i,
-  /we went with/i,
-  /we agreed on/i,
+  /\bwe decided to\b/i,
+  /\bthe decision was\b/i,
+  /\bwe chose to\b/i,
+  /\bwe went with\b/i,
+  /\bwe agreed on\b/i,
   // Processes
-  /the process is/i,
-  /our workflow for/i,
-  /the procedure for/i,
-  /how we handle/i,
-  /our approach to/i,
-  /standard practice/i,
+  /\bthe process is\b/i,
+  /\bour workflow for\b/i,
+  /\bthe procedure for\b/i,
+  /\bhow we handle\b/i,
+  /\bour approach to\b/i,
+  /\bstandard practice\b/i,
   // Architecture & Technical
-  /our architecture/i,
-  /the system works by/i,
-  /we use .+ for/i,
-  /our stack includes/i,
-  /the api .+ endpoint/i,
-  /our database/i,
-  /we deploy using/i,
+  /\bour architecture\b/i,
+  /\bthe system works by\b/i,
+  /\bwe use \w+ for\b/i,
+  /\bour stack includes\b/i,
+  /\bthe api \w+ endpoint\b/i,
+  /\bour database\b/i,
+  /\bwe deploy using\b/i,
   // Policies
-  /company policy/i,
-  /our policy on/i,
-  /the rule is/i,
-  /guidelines for/i,
+  /\bcompany policy\b/i,
+  /\bour policy on\b/i,
+  /\bthe rule is\b/i,
+  /\bguidelines for\b/i,
   // Project Context
-  /the project goal/i,
-  /we're building/i,
-  /the requirements are/i,
-  /the deadline is/i,
-  /the client wants/i,
-  /blockers? (are|is)/i,
+  /\bthe project goal\b/i,
+  /\bwe're building\b/i,
+  /\bthe requirements are\b/i,
+  /\bthe deadline is\b/i,
+  /\bthe client wants\b/i,
+  /\bblockers? (?:are|is)\b/i,
 ];
 
 // Department detection from content
@@ -117,6 +104,31 @@ function detectDepartment(content: string): string {
   return bestDept;
 }
 
+/**
+ * Detect if content contains sensitive topics that require elevated classification.
+ * Returns the minimum clearance level needed based on detected topics.
+ */
+function detectSensitiveClassification(content: string): ClearanceLevel {
+  const roles = getCompanyRoles();
+  const topicRestrictions = roles.topic_restrictions;
+  let maxClearance: ClearanceLevel = 'internal';
+  const hierarchy: ClearanceLevel[] = ['public', 'internal', 'confidential', 'restricted'];
+
+  for (const [keyword, requiredClearance] of Object.entries(topicRestrictions)) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+    if (regex.test(content)) {
+      const currentIdx = hierarchy.indexOf(maxClearance);
+      const newIdx = hierarchy.indexOf(requiredClearance as ClearanceLevel);
+      if (newIdx > currentIdx) {
+        maxClearance = requiredClearance as ClearanceLevel;
+      }
+    }
+  }
+
+  return maxClearance;
+}
+
 function generateId(summary: string): string {
   const now = new Date();
   const timestamp = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
@@ -143,7 +155,6 @@ function extractTags(content: string): string[] {
   const tags: string[] = [];
   const contentLower = content.toLowerCase();
 
-  // Simple tag extraction from common technical/business terms
   const tagCandidates = [
     'api', 'database', 'deployment', 'testing', 'security', 'performance',
     'architecture', 'design', 'process', 'policy', 'integration',
@@ -155,12 +166,36 @@ function extractTags(content: string): string[] {
     if (contentLower.includes(tag)) tags.push(tag);
   }
 
-  return tags.slice(0, 8); // Max 8 tags
+  return tags.slice(0, 8);
+}
+
+/**
+ * Generate a hash of the knowledge entry for deduplication.
+ */
+function generateContentHash(summary: string, department: string, tags: string[]): string {
+  const hashInput = `${summary.toLowerCase().trim()}|${department}|${tags.sort().join(',')}`;
+  return createHash('sha256').update(hashInput).digest('hex').slice(0, 16);
+}
+
+/**
+ * Check if a similar entry already exists in the index.
+ */
+function isDuplicate(indexPath: string, contentHash: string): boolean {
+  if (!existsSync(indexPath)) return false;
+  try {
+    const content = readFileSync(indexPath, 'utf-8');
+    // Check if the hash appears in any existing entry
+    return content.includes(`"content_hash":"${contentHash}"`);
+  } catch {
+    return false;
+  }
 }
 
 function logAudit(entry: Record<string, unknown>): void {
   try {
     const vaultPath = getVaultPath();
+    if (!vaultPath) return;
+
     const now = new Date();
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const auditDir = join(vaultPath, 'AUDIT', yearMonth);
@@ -177,15 +212,9 @@ function logAudit(entry: Record<string, unknown>): void {
 }
 
 async function main() {
-  let inputData = '';
-  for await (const chunk of Bun.stdin.stream()) {
-    inputData += new TextDecoder().decode(chunk);
-  }
+  const input = await readStdinJSON<HookInput>();
 
-  let input: HookInput;
-  try {
-    input = JSON.parse(inputData);
-  } catch {
+  if (!input) {
     process.exit(0);
   }
 
@@ -207,25 +236,50 @@ async function main() {
     .join('\n');
   const combinedContent = `${userContent}\n${assistantContent}`;
 
-  // Check if the conversation contains knowledge signals
-  const hasKnowledgeSignal = KNOWLEDGE_SIGNALS.some(pattern => pattern.test(combinedContent));
-  if (!hasKnowledgeSignal) {
+  // Require 2+ knowledge signal matches for quality control
+  const signalCount = KNOWLEDGE_SIGNALS.filter(pattern => pattern.test(combinedContent)).length;
+  if (signalCount < 2) {
     process.exit(0);
   }
 
   const employee = getEmployee();
   const vaultPath = getVaultPath();
+  if (!vaultPath) {
+    process.exit(0);
+  }
 
-  // Determine classification — employee can only contribute at or below their clearance
-  const classification: ClearanceLevel = employee.clearance === 'restricted' ? 'internal' :
-    employee.clearance === 'confidential' ? 'internal' : 'internal';
-  // Most ingested knowledge defaults to INTERNAL. Confidential/restricted content
-  // should be manually classified by authorized personnel.
+  // Determine classification based on content sensitivity
+  // Detect sensitive topics and elevate classification accordingly
+  const detectedClearance = detectSensitiveClassification(combinedContent);
 
-  const department = employee.department !== 'unknown' ? employee.department : detectDepartment(combinedContent);
+  // If content is more sensitive than the employee's clearance, skip ingestion entirely.
+  // We cannot safely store it: downgrading would leak confidential content,
+  // and the employee shouldn't have been discussing it (PromptGuard should block).
+  const hierarchy: ClearanceLevel[] = ['public', 'internal', 'confidential', 'restricted'];
+  const employeeIdx = hierarchy.indexOf(employee.clearance);
+  const detectedIdx = hierarchy.indexOf(detectedClearance);
+
+  if (detectedIdx > employeeIdx) {
+    // Sensitive content above employee's clearance — do not persist at lower level
+    process.exit(0);
+  }
+
+  // Classify at the detected sensitivity level (never below what the content demands)
+  const classification: ClearanceLevel = detectedClearance;
+
+  const department = employee.department !== 'unknown' && employee.department !== 'pending'
+    ? employee.department
+    : detectDepartment(combinedContent);
   const summary = extractSummary(userContent || combinedContent);
   const tags = extractTags(combinedContent);
   const id = generateId(summary);
+
+  // Deduplication check
+  const indexPath = join(vaultPath, '_index.jsonl');
+  const contentHash = generateContentHash(summary, department, tags);
+  if (isDuplicate(indexPath, contentHash)) {
+    process.exit(0);
+  }
 
   // Build the knowledge file
   const classificationDir = classification.toUpperCase();
@@ -248,6 +302,7 @@ created: "${new Date().toISOString()}"
 source_session: "${input.session_id || 'unknown'}"
 tags: ${JSON.stringify(tags)}
 summary: "${summary.replace(/"/g, '\\"')}"
+content_hash: "${contentHash}"
 ---
 
 ${combinedContent.slice(0, 2000)}
@@ -261,8 +316,8 @@ ${combinedContent.slice(0, 2000)}
     process.exit(0);
   }
 
-  // Append to index
-  const indexEntry: KnowledgeEntry = {
+  // Append to index (with content_hash for dedup)
+  const indexEntry = {
     id,
     classification,
     department,
@@ -273,10 +328,10 @@ ${combinedContent.slice(0, 2000)}
     tags,
     summary,
     file_path: `${classificationDir}/${department}/${fileName}`,
+    content_hash: contentHash,
   };
 
   try {
-    const indexPath = join(vaultPath, '_index.jsonl');
     appendFileSync(indexPath, JSON.stringify(indexEntry) + '\n');
   } catch {
     // Index append failure is non-critical

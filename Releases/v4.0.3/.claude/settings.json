@@ -61,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${PAI_DIR}/hooks/SecurityValidator.hook.ts"
+            "command": "HOOKS_DIR/SecurityValidator.hook.ts"
           }
         ]
       },
@@ -70,7 +70,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${PAI_DIR}/hooks/SecurityValidator.hook.ts"
+            "command": "HOOKS_DIR/SecurityValidator.hook.ts"
+          },
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/AccessControl.hook.ts"
           }
         ]
       },
@@ -79,7 +83,24 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${PAI_DIR}/hooks/SecurityValidator.hook.ts"
+            "command": "HOOKS_DIR/SecurityValidator.hook.ts"
+          },
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/AccessControl.hook.ts"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/SecurityValidator.hook.ts"
+          },
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/AccessControl.hook.ts"
           }
         ]
       },
@@ -88,11 +109,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${PAI_DIR}/hooks/SecurityValidator.hook.ts"
+            "command": "HOOKS_DIR/SecurityValidator.hook.ts"
           },
           {
             "type": "command",
-            "command": "${PAI_DIR}/hooks/AccessControl.hook.ts"
+            "command": "HOOKS_DIR/AccessControl.hook.ts"
           }
         ]
       }
@@ -102,7 +123,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${PAI_DIR}/hooks/PromptGuard.hook.ts"
+            "command": "HOOKS_DIR/PromptGuard.hook.ts"
           }
         ]
       }
@@ -112,11 +133,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${PAI_DIR}/hooks/IntegrityCheck.hook.ts"
+            "command": "HOOKS_DIR/IntegrityCheck.hook.ts"
           },
           {
             "type": "command",
-            "command": "${PAI_DIR}/hooks/VaultContext.hook.ts"
+            "command": "HOOKS_DIR/VaultContext.hook.ts"
           }
         ]
       }
@@ -126,7 +147,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${PAI_DIR}/hooks/KnowledgeIngestion.hook.ts"
+            "command": "HOOKS_DIR/KnowledgeIngestion.hook.ts"
           }
         ]
       }

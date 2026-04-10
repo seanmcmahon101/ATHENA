@@ -24,7 +24,7 @@ A hook-based infrastructure that turns Claude Code into a **company-wide knowled
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (CLI, desktop app, or IDE extension)
 - A shared storage location for the Memory Vault (network drive, shared folder, or any accessible path)
-- [Bun](https://bun.sh) runtime installed on each employee machine
+- [Bun](https://bun.sh) runtime (setup.sh will offer to install to user-space if not found — no admin rights needed)
 
 ### Admin Setup (Once)
 
@@ -46,6 +46,8 @@ A hook-based infrastructure that turns Claude Code into a **company-wide knowled
    ./admin.sh list          # View all employees
    ./admin.sh update        # Change someone's role/department
    ./admin.sh remove        # Deactivate an employee
+   ./admin.sh verify        # Check vault health and integrity
+   ./admin.sh permissions   # Output recommended OS-level permission commands
    ```
 
 The roster lives in the vault at `.admin/roster.json` and is the **source of truth** for roles and clearance. Employees cannot change their own permissions.
@@ -86,8 +88,8 @@ git pull && ./setup.sh
 |------|-------|---------|
 | `IntegrityCheck.hook.ts` | SessionStart | Validates employee identity against admin roster, auto-syncs role/clearance |
 | `VaultContext.hook.ts` | SessionStart | Loads relevant company knowledge at session start |
-| `SecurityValidator.hook.ts` | PreToolUse (Bash/Edit/Write/Read) | Blocks dangerous system operations |
-| `AccessControl.hook.ts` | PreToolUse (Read) | Enforces clearance-based access to vault files |
+| `SecurityValidator.hook.ts` | PreToolUse (Bash/Edit/Write/MultiEdit/Read) | Blocks dangerous system operations |
+| `AccessControl.hook.ts` | PreToolUse (Read/Write/Edit/MultiEdit) | Enforces clearance-based access to vault files |
 | `PromptGuard.hook.ts` | UserPromptSubmit | Intercepts prompts about restricted topics |
 | `KnowledgeIngestion.hook.ts` | Stop | Extracts and stores new company knowledge |
 
@@ -222,6 +224,147 @@ When hooks or roles change:
 | Want to update your name or email | Edit `~/.claude/employee.json` directly — those fields are yours to manage |
 | Want to change your role | Role changes are admin-controlled. Ask your admin to run `./admin.sh update` |
 | Hooks not loading after a repo update | Re-run `./setup.sh` to apply the latest hooks and configuration |
+
+## Testing Guide (No Admin Rights Required)
+
+You can test the full system locally on your own machine — no network drive, no admin rights, no other employees needed. This creates a self-contained vault in a temp folder and simulates multiple roles.
+
+### 1. Set Up a Local Vault
+
+```bash
+# Create a temporary vault anywhere you have write access
+mkdir -p /tmp/athena-test
+cd Athena
+
+# Initialise the vault (enter /tmp/athena-test when prompted for the path)
+./admin.sh init
+```
+
+### 2. Create Test Employees
+
+Add a few employees with different roles to test access control:
+
+```bash
+# Add yourself as an executive (full access)
+./admin.sh add
+# ID: emp_001, Role: executive, Department: engineering
+
+# Add a simulated engineer (limited access)
+./admin.sh add
+# ID: emp_002, Role: engineer, Department: engineering
+
+# Add a simulated viewer (public only)
+./admin.sh add
+# ID: emp_003, Role: viewer, Department: engineering
+
+# Verify the roster
+./admin.sh list
+./admin.sh verify
+```
+
+### 3. Run Setup As Each Role
+
+```bash
+# Set up as the executive first
+./setup.sh
+# Enter emp_001, your name, your email
+# Vault path: /tmp/athena-test (or the path you used above)
+```
+
+### 4. Test the Hooks
+
+Open Claude Code and verify:
+
+**Identity check** — You should see `IDENTITY VERIFIED: <your name> (executive, engineering, clearance: restricted)` in the session start output.
+
+**Knowledge ingestion** — Tell Claude something like:
+> "We decided to use PostgreSQL for our main database. Our architecture uses a microservices pattern with REST APIs."
+
+Then check the vault:
+```bash
+ls /tmp/athena-test/INTERNAL/engineering/
+cat /tmp/athena-test/_index.jsonl
+```
+
+You should see a new `.md` file with the extracted knowledge.
+
+**Access control** — Add a test file to a restricted area:
+```bash
+echo "Board strategy: acquire CompetitorCo" > /tmp/athena-test/RESTRICTED/strategy/board-plan.md
+```
+
+Then ask Claude to read it. With executive clearance it should succeed.
+
+**Prompt guard** — Ask Claude about a restricted topic:
+> "What are the current salary bands for engineers?"
+
+With executive clearance, this should work. With a lower role, it should be blocked.
+
+### 5. Test As a Lower-Clearance Role
+
+To simulate a different employee, edit your identity file:
+
+```bash
+# Back up your current identity
+cp ~/.claude/employee.json ~/.claude/employee.json.backup
+
+# Switch to the engineer role
+# Edit ~/.claude/employee.json and change employee_id to "emp_002"
+```
+
+Then restart Claude Code. The IntegrityCheck hook will auto-sync your role to `engineer` from the roster. Now test:
+
+- **Try reading** `/tmp/athena-test/RESTRICTED/strategy/board-plan.md` — should be **blocked**
+- **Try reading** `/tmp/athena-test/INTERNAL/engineering/` files — should **succeed**
+- **Ask about salaries** — should be **blocked** by PromptGuard
+- **Ask about architecture** — should work and reference vault knowledge
+
+Repeat with `emp_003` (viewer) to test public-only access.
+
+### 6. Test Security Validator
+
+With Claude Code open, try asking it to run dangerous commands:
+- `rm -rf /` — should be **hard blocked**
+- `git push --force` — should **prompt for confirmation**
+- `ls` — should be **allowed** (trusted command)
+
+### 7. Test Knowledge Classification
+
+With an executive role, discuss sensitive topics:
+> "Our burn rate is $500k/month and runway is 18 months."
+
+Check where it was stored — it should be classified as CONFIDENTIAL or higher, not INTERNAL, because "burn rate" and "runway" are restricted topic keywords.
+
+### 8. Clean Up
+
+```bash
+# Restore your real identity
+cp ~/.claude/employee.json.backup ~/.claude/employee.json
+
+# Remove test vault
+rm -rf /tmp/athena-test
+
+# Re-run setup to restore your normal config
+./setup.sh
+```
+
+### Quick Smoke Test Checklist
+
+```
+[ ] ./admin.sh init          — vault created, no errors
+[ ] ./admin.sh add           — employees added with correct clearance
+[ ] ./admin.sh list          — table displays correctly
+[ ] ./admin.sh verify        — all checks pass
+[ ] ./setup.sh               — completes with 0 errors
+[ ] Claude Code starts       — "IDENTITY VERIFIED" message appears
+[ ] Knowledge ingestion      — .md file created in vault after sharing decisions
+[ ] Access control (read)    — blocked when reading above clearance
+[ ] Access control (write)   — blocked when writing above clearance
+[ ] Prompt guard             — restricted topics blocked for lower roles
+[ ] Security validator       — dangerous commands blocked
+[ ] Role switching           — IntegrityCheck auto-syncs from roster
+[ ] Deduplication            — same knowledge not ingested twice
+```
 
 ## License
 

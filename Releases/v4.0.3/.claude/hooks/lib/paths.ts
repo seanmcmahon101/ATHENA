@@ -1,12 +1,8 @@
 /**
- * Path Resolution
+ * Path Resolution for Athena
  *
- * Handles environment variable expansion for portable PAI configuration.
- * The AI assistant does not expand $HOME in settings.json env values — this module does.
- *
- * Usage:
- *   import { getPaiDir, getSettingsPath } from './lib/paths';
- *   const paiDir = getPaiDir(); // Always returns an expanded absolute path
+ * Handles environment variable expansion for portable configuration.
+ * Resolves the Claude config directory and vault paths.
  */
 
 import { homedir } from 'os';
@@ -14,28 +10,27 @@ import { join } from 'path';
 
 /**
  * Expand shell variables in a path string
- * Supports: $HOME, ${HOME}, ~
+ * Supports: $HOME, ${HOME}, ~, %USERPROFILE%
  */
 export function expandPath(path: string): string {
   const home = homedir();
 
   return path
-    .replace(/^\$HOME(?=\/|$)/, home)
-    .replace(/^\$\{HOME\}(?=\/|$)/, home)
-    .replace(/^~(?=\/|$)/, home);
+    .replace(/^\$HOME(?=\/|\\|$)/, home)
+    .replace(/^\$\{HOME\}(?=\/|\\|$)/, home)
+    .replace(/^~(?=\/|\\|$)/, home)
+    .replace(/^%USERPROFILE%/i, home);
 }
 
 /**
- * Get the PAI directory (expanded)
- * Priority: PAI_DIR env var (expanded) → ~/.claude
+ * Get the Claude config directory (expanded)
+ * Priority: CLAUDE_CONFIG_DIR env var → ~/.claude
  */
-export function getPaiDir(): string {
-  const envPaiDir = process.env.PAI_DIR;
-
-  if (envPaiDir) {
-    return expandPath(envPaiDir);
+export function getConfigDir(): string {
+  const envDir = process.env.CLAUDE_CONFIG_DIR;
+  if (envDir) {
+    return expandPath(envDir);
   }
-
   return join(homedir(), '.claude');
 }
 
@@ -43,33 +38,22 @@ export function getPaiDir(): string {
  * Get the settings.json path
  */
 export function getSettingsPath(): string {
-  return join(getPaiDir(), 'settings.json');
+  return join(getConfigDir(), 'settings.json');
 }
 
 /**
- * Get a path relative to PAI_DIR
+ * Get a path relative to the config directory
  */
-export function paiPath(...segments: string[]): string {
-  return join(getPaiDir(), ...segments);
+export function configPath(...segments: string[]): string {
+  return join(getConfigDir(), ...segments);
 }
+
+// Legacy alias for backward compatibility with hooks that import paiPath
+export const paiPath = configPath;
 
 /**
  * Get the hooks directory
  */
 export function getHooksDir(): string {
-  return paiPath('hooks');
-}
-
-/**
- * Get the skills directory
- */
-export function getSkillsDir(): string {
-  return paiPath('skills');
-}
-
-/**
- * Get the MEMORY directory
- */
-export function getMemoryDir(): string {
-  return paiPath('MEMORY');
+  return configPath('hooks');
 }
