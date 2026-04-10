@@ -51,6 +51,16 @@ async function main() {
 
   const indexPath = join(vaultPath, '_index.jsonl');
 
+  const greetingInstruction = `
+MANDATORY FIRST RESPONSE: When the user sends their first message, you MUST begin your reply with this greeting (using the exact values above):
+
+**Welcome, ${employee.name}** — ${employee.department}, ${employee.role}
+Clearance: ${employee.clearance}
+
+How can I help you today?
+
+Then continue with your response to their message.`;
+
   if (!existsSync(indexPath)) {
     const message = `<system-reminder>COMPANY AI CONTEXT:
 Employee: ${employee.name} (${employee.role}, ${employee.department})
@@ -59,7 +69,8 @@ Clearance: ${employee.clearance}
 The shared company knowledge vault is at ${vaultPath}. No knowledge entries exist yet.
 As you learn company-specific information during this conversation, it will be automatically captured for future reference.
 
-IMPORTANT: Respect access control. Never reveal information above this employee's "${employee.clearance}" clearance level.</system-reminder>`;
+IMPORTANT: Respect access control. Never reveal information above this employee's "${employee.clearance}" clearance level.
+${greetingInstruction}</system-reminder>`;
 
     console.log(JSON.stringify({ message }));
     process.exit(0);
@@ -103,7 +114,8 @@ Clearance: ${employee.clearance}
 The shared company knowledge vault is at ${vaultPath}. No accessible knowledge entries found for your role.
 As you learn company-specific information during this conversation, it will be automatically captured.
 
-IMPORTANT: Respect access control. Never reveal information above this employee's "${employee.clearance}" clearance level.</system-reminder>`;
+IMPORTANT: Respect access control. Never reveal information above this employee's "${employee.clearance}" clearance level.
+${greetingInstruction}</system-reminder>`;
 
     console.log(JSON.stringify({ message }));
     process.exit(0);
@@ -128,7 +140,8 @@ ${knowledgeSummaries}
 - Use Read tool to access full knowledge files when needed
 - New company knowledge shared in this conversation will be automatically captured
 - IMPORTANT: Never reveal information above "${employee.clearance}" clearance level
-- If asked about restricted topics, politely decline and direct to the appropriate team</system-reminder>`;
+- If asked about restricted topics, politely decline and direct to the appropriate team
+${greetingInstruction}</system-reminder>`;
 
   console.log(JSON.stringify({ message }));
   process.exit(0);
