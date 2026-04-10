@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-04-10T13:38:37.349Z",
+  "session_id": "test",
+  "event_type": "confirm",
+  "tool": "Bash",
+  "category": "bash_command",
+  "target": "git push --force",
+  "reason": "Force push can overwrite remote history",
+  "action_taken": "Prompted user for confirmation"
+}

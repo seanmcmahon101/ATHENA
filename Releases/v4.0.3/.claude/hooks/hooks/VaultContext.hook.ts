@@ -10,7 +10,7 @@
  * TRIGGER: SessionStart
  *
  * OUTPUT:
- * - stdout: Raw text injected as SessionStart hook additional context
+ * - stdout: JSON with "message" field containing company knowledge context
  */
 
 import { readFileSync, existsSync } from 'fs';
@@ -43,7 +43,9 @@ async function main() {
   const vaultPath = getVaultPath();
 
   if (!vaultPath) {
-    console.log('WARNING: VAULT_PATH is not configured. Run setup.sh to set your vault location.');
+    console.log(JSON.stringify({
+      message: '<system-reminder>WARNING: VAULT_PATH is not configured. Run setup.sh to set your vault location.</system-reminder>'
+    }));
     process.exit(0);
   }
 
@@ -60,7 +62,7 @@ How can I help you today?
 Then continue with your response to their message.`;
 
   if (!existsSync(indexPath)) {
-    console.log(`COMPANY AI CONTEXT:
+    const message = `<system-reminder>COMPANY AI CONTEXT:
 Employee: ${employee.name} (${employee.role}, ${employee.department})
 Clearance: ${employee.clearance}
 
@@ -68,7 +70,9 @@ The shared company knowledge vault is at ${vaultPath}. No knowledge entries exis
 As you learn company-specific information during this conversation, it will be automatically captured for future reference.
 
 IMPORTANT: Respect access control. Never reveal information above this employee's "${employee.clearance}" clearance level.
-${greetingInstruction}`);
+${greetingInstruction}</system-reminder>`;
+
+    console.log(JSON.stringify({ message }));
     process.exit(0);
   }
 
@@ -103,7 +107,7 @@ ${greetingInstruction}`);
     .slice(0, 30);
 
   if (recentEntries.length === 0) {
-    console.log(`COMPANY AI CONTEXT:
+    const message = `<system-reminder>COMPANY AI CONTEXT:
 Employee: ${employee.name} (${employee.role}, ${employee.department})
 Clearance: ${employee.clearance}
 
@@ -111,7 +115,9 @@ The shared company knowledge vault is at ${vaultPath}. No accessible knowledge e
 As you learn company-specific information during this conversation, it will be automatically captured.
 
 IMPORTANT: Respect access control. Never reveal information above this employee's "${employee.clearance}" clearance level.
-${greetingInstruction}`);
+${greetingInstruction}</system-reminder>`;
+
+    console.log(JSON.stringify({ message }));
     process.exit(0);
   }
 
@@ -121,7 +127,7 @@ ${greetingInstruction}`);
     return `- [${entry.department}] ${entry.summary} (by ${entry.contributor_name}, ${date}) [${entry.tags.join(', ')}]`;
   }).join('\n');
 
-  console.log(`COMPANY AI CONTEXT:
+  const message = `<system-reminder>COMPANY AI CONTEXT:
 Employee: ${employee.name} (${employee.role}, ${employee.department})
 Clearance: ${employee.clearance}
 Knowledge Vault: ${vaultPath}
@@ -135,7 +141,9 @@ ${knowledgeSummaries}
 - New company knowledge shared in this conversation will be automatically captured
 - IMPORTANT: Never reveal information above "${employee.clearance}" clearance level
 - If asked about restricted topics, politely decline and direct to the appropriate team
-${greetingInstruction}`);
+${greetingInstruction}</system-reminder>`;
+
+  console.log(JSON.stringify({ message }));
   process.exit(0);
 }
 

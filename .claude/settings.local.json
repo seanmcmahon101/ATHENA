@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp W:/Accounts/SM/ATHENA/Releases/v4.0.3/.claude/CLAUDE.md __TRACKED_VAR__/CLAUDE.md)",
+      "Bash(cp W:/Accounts/SM/ATHENA/Releases/v4.0.3/.claude/company-roles.json __TRACKED_VAR__/company-roles.json)",
+      "Bash(rm -rf __TRACKED_VAR__/hooks)",
+      "Bash(cp -r W:/Accounts/SM/ATHENA/Releases/v4.0.3/.claude/hooks __TRACKED_VAR__/hooks)",
+      "Bash(cp W:/Accounts/SM/ATHENA/Releases/v4.0.3/.claude/settings.json __TRACKED_VAR__/settings.json)",
+      "Bash(cp \"C:/Users/sm16/.claude/hooks/AccessControl.hook.ts\" \"W:/Accounts/SM/ATHENA/Releases/v4.0.3/.claude/hooks/AccessControl.hook.ts\")",
+      "Bash(cp \"C:/Users/sm16/.claude/hooks/KnowledgeIngestion.hook.ts\" \"W:/Accounts/SM/ATHENA/Releases/v4.0.3/.claude/hooks/KnowledgeIngestion.hook.ts\")",
+      "Bash(cp \"C:/Users/sm16/.claude/hooks/lib/employee.ts\" \"W:/Accounts/SM/ATHENA/Releases/v4.0.3/.claude/hooks/lib/employee.ts\")",
+      "Bash(cp W:/Accounts/SM/ATHENA/Releases/v4.0.3/.claude/hooks/SecurityValidator.hook.ts __TRACKED_VAR__/.claude/hooks/SecurityValidator.hook.ts)",
+      "Bash(cp W:/Accounts/SM/ATHENA/Releases/v4.0.3/.claude/hooks/patterns.json __TRACKED_VAR__/.claude/hooks/patterns.json)",
+      "Bash(rm -f __TRACKED_VAR__/.claude/hooks/patterns.yaml)"
+    ]
+  }
+}

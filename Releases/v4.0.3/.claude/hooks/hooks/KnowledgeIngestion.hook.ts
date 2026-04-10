@@ -49,30 +49,13 @@ const KNOWLEDGE_SIGNALS = [
   /\bwe chose to\b/i,
   /\bwe went with\b/i,
   /\bwe agreed on\b/i,
-  // Processes & how-we-do-things
+  // Processes
   /\bthe process is\b/i,
   /\bour workflow for\b/i,
   /\bthe procedure for\b/i,
   /\bhow we handle\b/i,
   /\bour approach to\b/i,
   /\bstandard practice\b/i,
-  /\bwe report\b/i,
-  /\bwe do \w+ every\b/i,
-  /\bwe run \w+ every\b/i,
-  /\bwe review\b/i,
-  /\bwe track\b/i,
-  /\bwe submit\b/i,
-  /\bwe send\b/i,
-  /\bwe follow\b/i,
-  // Business context — naming, conventions, schedules
-  /\bbusiness info\b/i,
-  /\bour budget\b/i,
-  /\bour (quarterly|monthly|annual|weekly)\b/i,
-  /\bevery \d+ (month|week|quarter|year)/i,
-  /\bstarting (with|from|in) (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i,
-  /\bnamed .{2,30} because\b/i,
-  /\bthe naming convention\b/i,
-  /\bwe call (it|them|this)\b/i,
   // Architecture & Technical
   /\bour architecture\b/i,
   /\bthe system works by\b/i,
@@ -81,9 +64,6 @@ const KNOWLEDGE_SIGNALS = [
   /\bthe api \w+ endpoint\b/i,
   /\bour database\b/i,
   /\bwe deploy using\b/i,
-  /\bwe connect to\b/i,
-  /\bour server\b/i,
-  /\bhosted (on|at|in)\b/i,
   // Policies
   /\bcompany policy\b/i,
   /\bour policy on\b/i,
@@ -96,12 +76,6 @@ const KNOWLEDGE_SIGNALS = [
   /\bthe deadline is\b/i,
   /\bthe client wants\b/i,
   /\bblockers? (?:are|is)\b/i,
-  // People & org
-  /\b\w+ is responsible for\b/i,
-  /\b\w+ handles\b/i,
-  /\b\w+ owns\b/i,
-  /\breports to\b/i,
-  /\bour team\b/i,
 ];
 
 // Department detection from content

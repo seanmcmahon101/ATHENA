@@ -57,7 +57,9 @@ async function main() {
   // Load local employee.json
   if (!existsSync(EMPLOYEE_PATH)) {
     console.error('[IntegrityCheck] No employee.json found. Run setup.sh first.');
-    console.log('WARNING: No employee identity configured. Run setup.sh to set up your employee profile. Operating in public/read-only mode.');
+    console.log(JSON.stringify({
+      message: '<system-reminder>WARNING: No employee identity configured. Run setup.sh to set up your employee profile. Operating in public/read-only mode.</system-reminder>'
+    }));
     process.exit(0);
   }
 
@@ -72,7 +74,9 @@ async function main() {
   // Load admin roster
   if (!ROSTER_PATH || !existsSync(ROSTER_PATH)) {
     console.error('[IntegrityCheck] No admin roster found. Skipping integrity check.');
-    console.log('NOTE: No admin roster found. Employee permissions are based on local employee.json only. Contact your admin to set up the roster.');
+    console.log(JSON.stringify({
+      message: '<system-reminder>NOTE: No admin roster found. Employee permissions are based on local employee.json only. Contact your admin to set up the roster.</system-reminder>'
+    }));
     process.exit(0);
   }
 
@@ -89,7 +93,9 @@ async function main() {
 
   if (!rosterEntry) {
     console.error(`[IntegrityCheck] Employee '${local.employee_id}' not found in admin roster.`);
-    console.log(`ACCESS DENIED: Your employee ID "${local.employee_id}" is not registered in the admin roster. Contact your admin to be added. Operating in public/read-only mode until registered.`);
+    console.log(JSON.stringify({
+      message: `<system-reminder>ACCESS DENIED: Your employee ID "${local.employee_id}" is not registered in the admin roster. Contact your admin to be added. Operating in public/read-only mode until registered.</system-reminder>`
+    }));
     // Override local clearance to public for safety
     local.clearance = 'public';
     local.role = 'viewer';
@@ -141,7 +147,9 @@ async function main() {
   }
 
   // Success
-  console.log(`IDENTITY VERIFIED: ${local.name} (${rosterEntry.role}, ${rosterEntry.department}, clearance: ${rosterEntry.clearance}). Identity matches admin roster.`);
+  console.log(JSON.stringify({
+    message: `<system-reminder>IDENTITY VERIFIED: ${local.name} (${rosterEntry.role}, ${rosterEntry.department}, clearance: ${rosterEntry.clearance}). Identity matches admin roster.</system-reminder>`
+  }));
   process.exit(0);
 }
 

@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-04-10T13:38:25.082Z",
+  "session_id": "42db907d-5401-4cce-9cbf-abbb48926092",
+  "event_type": "block",
+  "tool": "Bash",
+  "category": "bash_command",
+  "target": "# Test 1: IntegrityCheck (SessionStart)\necho \"--- IntegrityCheck ---\"\necho '{}' | bun \"$HOME/.claude/hooks/IntegrityCheck.hook.ts\" 2>&1\necho \"EXIT: $?\"\necho \"\"\n\n# Test 2: VaultContext (SessionStart)\necho \"--- VaultContext ---\"\necho '{}' | bun \"$HOME/.claude/hooks/VaultContext.hook.ts\" 2>&1\necho \"EXIT: $?\"\necho \"\"\n\n# Test 3: SecurityValidator - safe command\necho \"--- SecurityValidator (safe) ---\"\necho '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls -la\"},\"session_id\":\"test\"}' | bun \"$HOME/.claud",
+  "reason": "Recursive force delete of system directories",
+  "action_taken": "Hard block - exit 2"
+}

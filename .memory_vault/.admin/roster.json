@@ -1,0 +1,16 @@
+{
+  "version": "1.0",
+  "updated_by": "admin",
+  "updated_at": "2026-04-10T12:50:27.924Z",
+  "employees": {
+    "emp_001": {
+      "name": "Sean McMahon",
+      "email": "sean@athena",
+      "department": "finance",
+      "role": "super_admin",
+      "clearance": "super_admin",
+      "active": true,
+      "added_at": "2026-04-10T12:50:27.921Z"
+    }
+  }
+}
