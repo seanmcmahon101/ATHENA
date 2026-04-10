@@ -126,11 +126,11 @@ async function main() {
     departmentOk = canAccessDepartment(employee, department);
   }
 
-  // For writes, additionally block writing to .admin/ unless admin
+  // For writes, additionally block writing to .admin/ unless super_admin
   let adminWriteOk = true;
   const relativePath = normalizedPath.slice(normalizedVault.length + 1);
   if (isWrite && relativePath.startsWith('.admin')) {
-    adminWriteOk = false; // Only OS-level permissions should allow admin writes
+    adminWriteOk = employee.clearance === 'super_admin';
   }
 
   const allowed = clearanceOk && departmentOk && adminWriteOk;
@@ -161,7 +161,7 @@ async function main() {
       ? `Your role (${employee.role}) has "${employee.clearance}" clearance but this file requires "${requiredClearance}" clearance.`
       : !departmentOk
         ? `Your role (${employee.role}) does not have access to the "${department}" department.`
-        : `Only administrators can write to the .admin/ directory.`;
+        : `Only super_admin users can write to the .admin/ directory.`;
 
     console.error(`ACCESS DENIED: ${reason} Contact your manager if you need access.`);
     process.exit(2);

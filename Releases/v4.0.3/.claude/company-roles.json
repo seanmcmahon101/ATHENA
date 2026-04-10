@@ -35,9 +35,13 @@
     "executive": {
       "clearance": "restricted",
       "departments_visible": ["*"]
+    },
+    "super_admin": {
+      "clearance": "super_admin",
+      "departments_visible": ["*"]
     }
   },
-  "clearance_hierarchy": ["public", "internal", "confidential", "restricted"],
+  "clearance_hierarchy": ["public", "internal", "confidential", "restricted", "super_admin"],
   "topic_restrictions": {
     "salary": "restricted",
     "compensation": "restricted",

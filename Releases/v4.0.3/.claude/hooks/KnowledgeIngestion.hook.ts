@@ -112,7 +112,7 @@ function detectSensitiveClassification(content: string): ClearanceLevel {
   const roles = getCompanyRoles();
   const topicRestrictions = roles.topic_restrictions;
   let maxClearance: ClearanceLevel = 'internal';
-  const hierarchy: ClearanceLevel[] = ['public', 'internal', 'confidential', 'restricted'];
+  const hierarchy: ClearanceLevel[] = ['public', 'internal', 'confidential', 'restricted', 'super_admin'];
 
   for (const [keyword, requiredClearance] of Object.entries(topicRestrictions)) {
     const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -255,7 +255,7 @@ async function main() {
   // If content is more sensitive than the employee's clearance, skip ingestion entirely.
   // We cannot safely store it: downgrading would leak confidential content,
   // and the employee shouldn't have been discussing it (PromptGuard should block).
-  const hierarchy: ClearanceLevel[] = ['public', 'internal', 'confidential', 'restricted'];
+  const hierarchy: ClearanceLevel[] = ['public', 'internal', 'confidential', 'restricted', 'super_admin'];
   const employeeIdx = hierarchy.indexOf(employee.clearance);
   const detectedIdx = hierarchy.indexOf(detectedClearance);
 

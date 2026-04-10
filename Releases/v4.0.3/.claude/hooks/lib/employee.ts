@@ -26,7 +26,7 @@ export interface Employee {
   clearance: ClearanceLevel;
 }
 
-export type ClearanceLevel = 'public' | 'internal' | 'confidential' | 'restricted';
+export type ClearanceLevel = 'public' | 'internal' | 'confidential' | 'restricted' | 'super_admin';
 
 export interface RoleDefinition {
   clearance: ClearanceLevel;
